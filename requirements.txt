@@ -1,0 +1,6 @@
+streamlit
+pandas
+plotly
+janome
+pypdf
+st-gsheets-connection
