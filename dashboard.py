@@ -15,12 +15,12 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# 2. 設定パラメータ（カスタマイズ可能）
+# 2. 設定パラメータ
 # ---------------------------------------------------------
-# 管理者用パスワード（お好みの文字列に変更してください）
+# 管理者用パスワード（お好みの暗証番号に変更可能です）
 ADMIN_PASSWORD = "admin2026"
 
-# 第1回データのデフォルトスプレッドシートURL
+# 第1回データのデフォルトスプレッドシートURL（ご指定のURL）
 DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/13KcOiiaqm4tO7VIl9e2EJ2d7t94hSOGp8PnReBNuiIo/edit?usp=sharing"
 
 # ---------------------------------------------------------
@@ -28,17 +28,14 @@ DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/13KcOiiaqm4tO7VIl9e2
 # ---------------------------------------------------------
 @st.cache_data(ttl=60)
 def load_data(sheet_url):
-    """GoogleスプレッドシートのURLからCSV形式でデータを読み込む関数"""
     try:
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url)
         if match:
             file_id = match.group(1)
             csv_url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv"
-            df = pd.read_csv(csv_url)
-            return df
-        else:
-            return None
-    except Exception as e:
+            return pd.read_csv(csv_url)
+        return None
+    except Exception:
         return None
 
 # ---------------------------------------------------------
@@ -86,23 +83,35 @@ st.caption("第1回（事前データ）から第2回以降（リアルタイム
 
 tab1, tab2, tab3 = st.tabs(["⚙️ 研究授業 事前登録", "📊 教科別・結果表示", "📈 生徒の変容・分析"])
 
-# --- タブ1: 事前登録（管理者権限で保護） ---
+# --- タブ1: 事前登録（元のUI構造を維持） ---
 with tab1:
     st.header("研究授業の事前登録")
     
     if is_admin:
         st.success("🔓 管理者権限が確認されました。新しい授業計画を登録・保存できます。")
-        with st.form("register_form"):
-            session_num = st.selectbox("登録対象の実施回を選択", ["第1回", "第2回", "第3回", "第4回", "第5回"])
-            subjects = st.multiselect(
-                "対象教科（最大10教科）", 
-                ["国語", "社会", "数学", "理科", "英語", "音楽", "美術", "保健体育", "技術家庭", "情報"]
-            )
-            pdf_file = st.file_uploader("ルーブリック資料（PDF）のアップロード", type=["pdf"])
-            
-            submitted = st.form_submit_button("この設定で研究授業を登録・保存", type="primary")
-            if submitted:
-                st.success(f"{session_num} の研究授業情報を正常に保存しました！")
+        
+        session_num = st.selectbox("登録対象の実施回を選択", ["第1回", "第2回", "第3回", "第4回", "第5回"])
+        subjects = st.multiselect(
+            "対象教科（最大10教科）", 
+            ["国語", "社会", "数学", "理科", "英語", "音楽", "美術", "保健体育", "技術家庭", "情報"]
+        )
+        
+        # 選択された教科の数だけ個別のルーブリックアップロード枠を生成（元の仕様）
+        if subjects:
+            st.write("---")
+            st.subheader("📄 各教科のルーブリック資料（PDF）のアップロード")
+            pdf_files = {}
+            for sub in subjects:
+                pdf_files[sub] = st.file_uploader(
+                    f"【{sub}】のルーブリックPDFをアップロード", 
+                    type=["pdf"], 
+                    key=f"pdf_uploader_{sub}"
+                )
+        
+        st.write("---")
+        submitted = st.button("この設定で研究授業を登録・保存", type="primary")
+        if submitted:
+            st.success(f"{session_num} の研究授業情報を正常に保存しました！")
     else:
         st.warning("🔒 授業の新規登録や設定変更は管理者（自校担当者）専用の機能です。")
         st.info("登録・設定変更を行う場合は、左側のサイドバーで「🔑 管理者パスワード」を入力してください。")
@@ -118,18 +127,15 @@ with tab2:
         st.subheader("📋 取得データ一覧")
         st.dataframe(df, use_container_width=True)
         
-        # 数値データとテキストデータの分離
         numeric_cols = df.select_dtypes(include=['number', 'float64', 'int64']).columns.tolist()
         text_cols = df.select_dtypes(include=['object']).columns.tolist()
         
-        # 評価スコアの集計グラフ
         if numeric_cols:
             st.subheader("📊 評価・スコア集計")
             selected_num_col = st.selectbox("集計項目を選択", numeric_cols)
             fig_num = px.histogram(df, x=selected_num_col, title=f"「{selected_num_col}」の分布状況", text_auto=True)
             st.plotly_chart(fig_num, use_container_width=True)
             
-        # 自由記述の形態素解析
         if text_cols:
             st.subheader("💬 自由記述テキストの単語出現頻度解析")
             selected_text_col = st.selectbox("分析対象の記述項目を選択", text_cols)
@@ -138,7 +144,6 @@ with tab2:
             tokenizer = Tokenizer()
             tokens = tokenizer.tokenize(text_data)
             
-            # 名詞かつ2文字以上の単語を抽出
             words = [
                 token.surface for token in tokens 
                 if token.part_of_speech.startswith('名詞') and len(token.surface) > 1
