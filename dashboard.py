@@ -271,7 +271,7 @@ with tab1:
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        available_rounds = [r for r in survey_df["回"].unique() if r != "第1回"]
+        available_rounds = [str(r) for r in survey_df["回"].dropna().unique() if str(r) != "第1回"]
         selected_round = st.selectbox("実施回を選択", ["すべて"] + available_rounds if available_rounds else ["データなし"])
     
     registered_data = st.session_state["lesson_settings"].get(selected_round, {})
@@ -282,7 +282,7 @@ with tab1:
             st.info(f"💡 {selected_round} に登録済みの教科を表示中")
             selected_subject = st.selectbox("教科を選択", ["すべて"] + registered_subs)
         else:
-            available_subjects = [s for s in survey_df["教科"].unique() if s != "全般"]
+            available_subjects = [str(s) for s in survey_df["教科"].dropna().unique() if str(s) != "全般"]
             selected_subject = st.selectbox("教科を選択（未登録のため全表示）", ["すべて"] + available_subjects if available_subjects else ["データなし"])
     
     filtered_df = survey_df[survey_df["回"] != "第1回"].copy()
@@ -353,8 +353,9 @@ with tab2:
                         words.append(token.base_form)
             return words
 
-        all_rounds = sorted(survey_df["回"].unique())
-        cols = st.columns(min(len(all_rounds), 3))
+        # 修正箇所: 空欄（NaN）を取り除き、すべて文字列に変換してから並べ替えを実行
+        all_rounds = sorted([str(r) for r in survey_df["回"].dropna().unique()])
+        cols = st.columns(min(len(all_rounds), 3)) if all_rounds else []
         for idx, r in enumerate(all_rounds):
             round_texts = survey_df[survey_df["回"] == r]["学び合い内容"]
             words = extract_words(round_texts)
