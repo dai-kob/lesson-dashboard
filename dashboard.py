@@ -27,7 +27,7 @@ ADMIN_PASSWORD = "admin2026"
 DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/13KcOiiaqm4tO7VIl9e2EJ2d7t94hSOGp8PnReBNuiIo/edit?usp=sharing"
 
 # Googleフォーム自動配付用設定
-FORM_ID = 1gXHGIpuhcHE_ohUh8yTIXXsS7EL6_z7YXiydtRJ2gqk""  # 例: 1FAIpQLSc... のようなフォームID
+FORM_ID = "1gXHGIpuhcHE_ohUh8yTIXXsS7EL6_z7YXiydtRJ2gqk"  # 例: 1FAIpQLSc... のようなフォームID
 ENTRY_ID_ROUND = "entry.999413418"  # 「実施回」質問項目のエントリーID
 
 # ---------------------------------------------------------
