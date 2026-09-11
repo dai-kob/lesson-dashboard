@@ -265,14 +265,25 @@ with tab_register:
 # ==========================================
 # タブ1: 教科別・結果表示
 # ==========================================
+# ==========================================
+# タブ1: 教科別・結果表示
+# ==========================================
 with tab1:
     st.header("教科別・回別 集計結果")
     st.caption("事前登録された教科とルーブリックに基づいて、授業ごとの回答を確認します。")
     
+    # 第1回以外のデータのみを抽出（文字列・数値両対応で確実に除外）
+    filtered_df = survey_df[~survey_df["回"].astype(str).str.contains("第1回")].copy()
+    
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        available_rounds = [str(r) for r in survey_df["回"].dropna().unique() if str(r) != "第1回"]
-        selected_round = st.selectbox("実施回を選択", ["すべて"] + available_rounds if available_rounds else ["データなし"])
+        # 実際に存在する第2回以降の実施回リストを取得
+        available_rounds = [str(r) for r in filtered_df["回"].dropna().unique() if str(r).strip() != ""]
+        if available_rounds:
+            selected_round = st.selectbox("実施回を選択", ["すべて"] + available_rounds)
+        else:
+            selected_round = "データなし"
+            st.selectbox("実施回を選択", ["データなし"], disabled=True)
     
     registered_data = st.session_state["lesson_settings"].get(selected_round, {})
     registered_subs = registered_data.get("subjects", [])
@@ -282,17 +293,24 @@ with tab1:
             st.info(f"💡 {selected_round} に登録済みの教科を表示中")
             selected_subject = st.selectbox("教科を選択", ["すべて"] + registered_subs)
         else:
-            available_subjects = [str(s) for s in survey_df["教科"].dropna().unique() if str(s) != "全般"]
-            selected_subject = st.selectbox("教科を選択（未登録のため全表示）", ["すべて"] + available_subjects if available_subjects else ["データなし"])
+            available_subjects = [str(s) for s in filtered_df["教科"].dropna().unique() if str(s) != "全般"]
+            if available_subjects and selected_round != "データなし":
+                selected_subject = st.selectbox("教科を選択（全表示）", ["すべて"] + available_subjects)
+            else:
+                selected_subject = "データなし"
+                st.selectbox("教科を選択", ["データなし"], disabled=True)
     
-    filtered_df = survey_df[survey_df["回"] != "第1回"].copy()
-    if selected_round != "すべて" and selected_round != "データなし":
-        filtered_df = filtered_df[filtered_df["回"] == selected_round]
-    if selected_subject != "すべて" and selected_subject != "データなし":
-        filtered_df = filtered_df[filtered_df["教科"] == selected_subject]
+    # データ絞り込み処理
+    if selected_round == "データなし":
+        filtered_df = pd.DataFrame()  # データがない場合は空のデータフレームにする
+    else:
+        if selected_round != "すべて":
+            filtered_df = filtered_df[filtered_df["回"].astype(str) == selected_round]
+        if selected_subject != "すべて" and selected_subject != "データなし":
+            filtered_df = filtered_df[filtered_df["教科"].astype(str) == selected_subject]
         
     if filtered_df.empty:
-        st.info("該当する授業データがまだありません。")
+        st.info("ℹ️ 該当する第2回以降の授業データがまだありません。生徒からの回答が集まるとここに表示されます。")
     else:
         st.markdown(f"### 対象データ件数: {len(filtered_df)} 件")
         
@@ -317,7 +335,6 @@ with tab1:
         st.subheader(f"📋 【{selected_subject}】 の登録ルーブリック")
         with st.expander("ルーブリック本文を表示"):
             st.write(rubrics_dict[selected_subject])
-
 # ==========================================
 # タブ2: 生徒の変容・分析
 # ==========================================
