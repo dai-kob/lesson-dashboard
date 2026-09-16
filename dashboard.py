@@ -18,11 +18,11 @@ st.title("🏫 研究授業 振り返り・変容分析ダッシュボード")
 st.caption("第1回（事前データ）から第2回以降（リアルタイム回収）までの生徒の変容を追跡・分析します。")
 
 # ---------------------------------------------------------
-# 2. 基本設定パラメータ（正しいスプレッドシートURLに修正済）
+# 2. 基本設定パラメータ
 # ---------------------------------------------------------
 ADMIN_PASSWORD = "admin2026"
 
-# スプレッドシートの参照用URL（正しいID: 1PySOCYKAIg0r_apzPgLRuaayEpNa0dlFDY95PGccfk0 に修正）
+# スプレッドシートの参照用URL（正常動作URL）
 DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1PySOCYKAIg0r_apzPgLRuaayEpNa0dlFDY95PGccfk0/edit?usp=sharing"
 
 # Googleフォーム自動配付用設定
@@ -132,7 +132,7 @@ def load_data(url):
         # 列名の前後の余分な空白を除去
         data.columns = [str(col).strip() for col in data.columns]
         
-        # 列名のあいまい判定
+        # 列名の柔軟な判定
         rename_dict = {}
         for col in data.columns:
             if "実施回" in col or "回" in col:
@@ -161,7 +161,7 @@ def load_data(url):
 
 survey_df = load_data(spreadsheet_url)
 
-# 第1回データの統合
+# 第1回データの統合処理
 st.sidebar.divider()
 st.sidebar.subheader("📁 データ管理")
 
@@ -317,7 +317,7 @@ with tab1:
             st.write(rubrics_dict[selected_subject])
 
 # ==========================================
-# タブ2: 生徒の変容・分析
+# タブ2: 生徒の変容・分析（ストップワード処理・変容語抽出強化版）
 # ==========================================
 with tab2:
     st.header("生徒の変容追跡・テキスト分析")
@@ -340,6 +340,16 @@ with tab2:
         st.divider()
         st.subheader("2. 「学び合いの内容」主要キーワードの変容（第1回 vs 第2回以降）")
         
+        # ---------------------------------------------------------
+        # 除外する一般的単語（ストップワード）の定義
+        # ---------------------------------------------------------
+        STOP_WORDS = {
+            "こと", "できる", "意見", "ある", "考え", "自分", "わかる", "友達",
+            "思う", "する", "いる", "なる", "いう", "ない", "それ", "これ",
+            "ため", "もの", "そう", "よう", "人", "みんな", "授業", "今日",
+            "今回", "ほう", "さん", "ちゃん", "なし", "ん", "グループ", "話し合い"
+        }
+
         def extract_words(text_series):
             t = Tokenizer()
             words = []
@@ -347,8 +357,12 @@ with tab2:
                 tokens = t.tokenize(str(text))
                 for token in tokens:
                     pos = token.part_of_speech.split(',')[0]
-                    if pos in ['名詞', '動詞', '形容詞'] and len(token.surface) > 1:
-                        words.append(token.base_form)
+                    base = token.base_form  # 基本形（原形）を取得（例：「確めた」→「確かめる」）
+                    
+                    # 名詞・動詞・形容詞で、2文字以上かつストップワードに含まれないものを抽出
+                    if pos in ['名詞', '動詞', '形容詞']:
+                        if len(base) > 1 and base not in STOP_WORDS:
+                            words.append(base)
             return words
 
         all_rounds = sorted([str(r) for r in survey_df["回"].dropna().unique()])
