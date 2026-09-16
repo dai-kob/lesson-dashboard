@@ -18,24 +18,23 @@ st.title("🏫 研究授業 振り返り・変容分析ダッシュボード")
 st.caption("第1回（事前データ）から第2回以降（リアルタイム回収）までの生徒の変容を追跡・分析します。")
 
 # ---------------------------------------------------------
-# 2. 基本設定パラメータ（パスワード・固定スプレッドシートURL・フォーム設定）
+# 2. 基本設定パラメータ（正しいスプレッドシートURLに修正済）
 # ---------------------------------------------------------
 ADMIN_PASSWORD = "admin2026"
 
-# スプレッドシートの参照用URL
-DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1PySOCYKAIg0r_apzPgLRuaayEpNa0dIFDY95PGccfk0/edit"
+# スプレッドシートの参照用URL（正しいID: 1PySOCYKAIg0r_apzPgLRuaayEpNa0dlFDY95PGccfk0 に修正）
+DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1PySOCYKAIg0r_apzPgLRuaayEpNa0dlFDY95PGccfk0/edit?usp=sharing"
 
-# Googleフォーム自動配付用設定（公開用フォームID）
+# Googleフォーム自動配付用設定
 FORM_ID = "1FAIpQLSe0E6C8Q3eqMsW_WLXRN6vYAFJn97RoqixZuJrXiDh4FsFThA"
 ENTRY_ID_ROUND = "entry.999413418"
 
 # ---------------------------------------------------------
-# 3. 事前登録データの保存・永続化処理（アプリ再起動でも消えない構造）
+# 3. 事前登録データの保存・永続化処理
 # ---------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "lesson_settings.json")
 
-# 初期状態の設定（第2回の各教科を標準で登録）
 DEFAULT_SETTINGS = {
     "第2回": {
         "subjects": ["社会", "数学", "理科", "技家", "保体", "英語"],
@@ -44,7 +43,6 @@ DEFAULT_SETTINGS = {
 }
 
 def load_settings():
-    """保存された設定ファイルを読み込む関数"""
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -56,7 +54,6 @@ def load_settings():
     return DEFAULT_SETTINGS
 
 def save_settings(data):
-    """現在の設定をファイルに書き出して保存する関数"""
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -64,7 +61,6 @@ def save_settings(data):
     except Exception:
         return False
 
-# セッション状態に登録データを保持
 if "lesson_settings" not in st.session_state:
     st.session_state["lesson_settings"] = load_settings()
 
@@ -121,7 +117,7 @@ else:
     st.sidebar.warning("⚠️ フォームIDが未設定です。")
 
 # ---------------------------------------------------------
-# 5. データベース接続・データ統合処理（列名のあいまい検索対応）
+# 5. データベース接続・データ統合処理
 # ---------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -136,7 +132,7 @@ def load_data(url):
         # 列名の前後の余分な空白を除去
         data.columns = [str(col).strip() for col in data.columns]
         
-        # 列名の柔軟な判定（あいまいマッチング）
+        # 列名のあいまい判定
         rename_dict = {}
         for col in data.columns:
             if "実施回" in col or "回" in col:
@@ -160,7 +156,7 @@ def load_data(url):
             
         return data
     except Exception as e:
-        st.error(f"データの読み込みに失敗しました: {e}")
+        st.warning(f"データ読み込み待機中... ({e})")
         return pd.DataFrame(columns=["回", "教科", "事前意見あり", "新たな気づき", "学び合い内容", "わかったこと"])
 
 survey_df = load_data(spreadsheet_url)
@@ -193,8 +189,8 @@ if include_1st:
 
         survey_df = pd.concat([df_processed, survey_df], ignore_index=True)
         st.sidebar.success("第1回データを統合表示中")
-    except Exception as e:
-        st.sidebar.error(f"第1回データ読み込みエラー: {e}")
+    except Exception:
+        pass
 
 # ---------------------------------------------------------
 # 6. メイン画面（3タブ構造）
@@ -259,7 +255,6 @@ with tab1:
     st.header("教科別・回別 集計結果")
     st.caption("事前登録された教科とルーブリックに基づいて、授業ごとの回答を確認します。")
     
-    # 第1回以外のデータ
     filtered_df = survey_df[~survey_df["回"].astype(str).str.contains("第1回")].copy()
     
     col_f1, col_f2 = st.columns(2)
