@@ -7,6 +7,7 @@ from streamlit_gsheets import GSheetsConnection
 import json
 import os
 import urllib.parse
+import re
 
 # ---------------------------------------------------------
 # 1. ページ基本設定
@@ -21,11 +22,8 @@ st.caption("第1回（事前データ）から第2回以降（リアルタイム
 # 2. 基本設定パラメータ
 # ---------------------------------------------------------
 ADMIN_PASSWORD = "admin2026"
-
-# スプレッドシートの参照用URL（正常動作URL）
 DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1PySOCYKAIg0r_apzPgLRuaayEpNa0dlFDY95PGccfk0/edit?usp=sharing"
 
-# Googleフォーム自動配付用設定
 FORM_ID = "1FAIpQLSe0E6C8Q3eqMsW_WLXRN6vYAFJn97RoqixZuJrXiDh4FsFThA"
 ENTRY_ID_ROUND = "entry.999413418"
 
@@ -117,7 +115,7 @@ else:
     st.sidebar.warning("⚠️ フォームIDが未設定です。")
 
 # ---------------------------------------------------------
-# 5. データベース接続・データ統合処理
+# 5. データベース接続・データ統合処理（列名・回クレンジング強固版）
 # ---------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -129,13 +127,13 @@ def load_data(url):
         clean_url = url.strip()
         data = conn.read(spreadsheet=clean_url, worksheet=0)
         
-        # 列名の前後の余分な空白を除去
+        # 列名の余分な空白を除去
         data.columns = [str(col).strip() for col in data.columns]
         
-        # 列名の柔軟な判定
+        # 正確な列の位置・名前に基づくマッピング処理
         rename_dict = {}
         for col in data.columns:
-            if "実施回" in col or "回" in col:
+            if "実施回" in col:
                 rename_dict[col] = "回"
             elif "教科" in col:
                 rename_dict[col] = "教科"
@@ -143,16 +141,25 @@ def load_data(url):
                 rename_dict[col] = "事前意見あり"
             elif "新" in col or col.startswith("3."):
                 rename_dict[col] = "新たな気づき"
-            elif "仲間" in col or "学び合い" in col or col.startswith("4."):
+            elif "仲間" in col or "どのような学び合い" in col or col.startswith("4."):
                 rename_dict[col] = "学び合い内容"
             elif "わかった" in col or "大切" in col or col.startswith("5."):
                 rename_dict[col] = "わかったこと"
                 
         data = data.rename(columns=rename_dict)
         
+        # 「回」列のデータクレンジング（誤判定や表記揺れを補正）
         if "回" in data.columns:
             data = data.dropna(subset=["回"])
-            data["回"] = data["回"].astype(str).str.strip()
+            def clean_round_val(val):
+                val_str = str(val).strip()
+                # 数値のみの場合は「第X回」に変換、すでに「第X回」の場合はそのまま採用
+                match = re.search(r'第?(\d+)回?', val_str)
+                if match:
+                    return f"第{match.group(1)}回"
+                return val_str
+            
+            data["回"] = data["回"].apply(clean_round_val)
             
         return data
     except Exception as e:
@@ -317,7 +324,7 @@ with tab1:
             st.write(rubrics_dict[selected_subject])
 
 # ==========================================
-# タブ2: 生徒の変容・分析（ストップワード処理・変容語抽出強化版）
+# タブ2: 生徒の変容・分析（正規データ厳格フィルタリング版）
 # ==========================================
 with tab2:
     st.header("生徒の変容追跡・テキスト分析")
@@ -340,9 +347,7 @@ with tab2:
         st.divider()
         st.subheader("2. 「学び合いの内容」主要キーワードの変容（第1回 vs 第2回以降）")
         
-        # ---------------------------------------------------------
-        # 除外する一般的単語（ストップワード）の定義
-        # ---------------------------------------------------------
+        # 除外単語（ストップワード）の設定
         STOP_WORDS = {
             "こと", "できる", "意見", "ある", "考え", "自分", "わかる", "友達",
             "思う", "する", "いる", "なる", "いう", "ない", "それ", "これ",
@@ -357,15 +362,15 @@ with tab2:
                 tokens = t.tokenize(str(text))
                 for token in tokens:
                     pos = token.part_of_speech.split(',')[0]
-                    base = token.base_form  # 基本形（原形）を取得（例：「確めた」→「確かめる」）
-                    
-                    # 名詞・動詞・形容詞で、2文字以上かつストップワードに含まれないものを抽出
+                    base = token.base_form
                     if pos in ['名詞', '動詞', '形容詞']:
                         if len(base) > 1 and base not in STOP_WORDS:
                             words.append(base)
             return words
 
-        all_rounds = sorted([str(r) for r in survey_df["回"].dropna().unique()])
+        # 存在する正規の「回」のみを抽出
+        all_rounds = sorted([str(r) for r in survey_df["回"].dropna().unique() if str(r).startswith("第")])
+        
         cols = st.columns(min(len(all_rounds), 3)) if all_rounds else []
         for idx, r in enumerate(all_rounds):
             round_texts = survey_df[survey_df["回"] == r]["学び合い内容"]
