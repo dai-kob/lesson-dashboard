@@ -115,7 +115,7 @@ else:
     st.sidebar.warning("⚠️ フォームIDが未設定です。")
 
 # ---------------------------------------------------------
-# 5. データベース接続・データ統合処理（列名・回クレンジング強固版）
+# 5. データベース接続・データ統合処理
 # ---------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -127,10 +127,8 @@ def load_data(url):
         clean_url = url.strip()
         data = conn.read(spreadsheet=clean_url, worksheet=0)
         
-        # 列名の余分な空白を除去
         data.columns = [str(col).strip() for col in data.columns]
         
-        # 正確な列の位置・名前に基づくマッピング処理
         rename_dict = {}
         for col in data.columns:
             if "実施回" in col:
@@ -148,18 +146,20 @@ def load_data(url):
                 
         data = data.rename(columns=rename_dict)
         
-        # 「回」列のデータクレンジング（誤判定や表記揺れを補正）
         if "回" in data.columns:
             data = data.dropna(subset=["回"])
-            def clean_round_val(val):
+            
+            # 【汎用フォーマット処理】
+            # 数字のみ（例: "3"）や「第3回」などの入力揺れを「第N回」形式に自動統一します。
+            # 特定の回を別の回へ書き換える処理は行いません。
+            def normalize_round(val):
                 val_str = str(val).strip()
-                # 数値のみの場合は「第X回」に変換、すでに「第X回」の場合はそのまま採用
-                match = re.search(r'第?(\d+)回?', val_str)
+                match = re.search(r'(\d+)', val_str)
                 if match:
                     return f"第{match.group(1)}回"
                 return val_str
             
-            data["回"] = data["回"].apply(clean_round_val)
+            data["回"] = data["回"].apply(normalize_round)
             
         return data
     except Exception as e:
@@ -324,7 +324,7 @@ with tab1:
             st.write(rubrics_dict[selected_subject])
 
 # ==========================================
-# タブ2: 生徒の変容・分析（正規データ厳格フィルタリング版）
+# タブ2: 生徒の変容・分析
 # ==========================================
 with tab2:
     st.header("生徒の変容追跡・テキスト分析")
@@ -347,7 +347,6 @@ with tab2:
         st.divider()
         st.subheader("2. 「学び合いの内容」主要キーワードの変容（第1回 vs 第2回以降）")
         
-        # 除外単語（ストップワード）の設定
         STOP_WORDS = {
             "こと", "できる", "意見", "ある", "考え", "自分", "わかる", "友達",
             "思う", "する", "いる", "なる", "いう", "ない", "それ", "これ",
@@ -368,7 +367,6 @@ with tab2:
                             words.append(base)
             return words
 
-        # 存在する正規の「回」のみを抽出
         all_rounds = sorted([str(r) for r in survey_df["回"].dropna().unique() if str(r).startswith("第")])
         
         cols = st.columns(min(len(all_rounds), 3)) if all_rounds else []
