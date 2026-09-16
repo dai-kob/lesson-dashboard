@@ -18,32 +18,45 @@ st.title("🏫 研究授業 振り返り・変容分析ダッシュボード")
 st.caption("第1回（事前データ）から第2回以降（リアルタイム回収）までの生徒の変容を追跡・分析します。")
 
 # ---------------------------------------------------------
-# 2. 基本設定パラメータ（パスワード・初期URL）
+# 2. 基本設定パラメータ（パスワード・固定スプレッドシートURL・フォーム設定）
 # ---------------------------------------------------------
-# 管理者用パスワード
 ADMIN_PASSWORD = "admin2026"
 
-# 第1回データおよび標準回答用スプレッドシートURL
-DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/13KcOiiaqm4tO7VIl9e2EJ2d7t94hSOGp8PnReBNuiIo/edit?usp=sharing"
-# Googleフォーム自動配付用設定（修正後）
+# スプレッドシートの参照用URL
+DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1PySOCYKAIg0r_apzPgLRuaayEpNa0dIFDY95PGccfk0/edit"
+
+# Googleフォーム自動配付用設定（公開用フォームID）
 FORM_ID = "1FAIpQLSe0E6C8Q3eqMsW_WLXRN6vYAFJn97RoqixZuJrXiDh4FsFThA"
 ENTRY_ID_ROUND = "entry.999413418"
+
 # ---------------------------------------------------------
-# 3. 事前登録データの保存・読み込み処理
+# 3. 事前登録データの保存・永続化処理（アプリ再起動でも消えない構造）
 # ---------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "lesson_settings.json")
 
+# 初期状態の設定（第2回の各教科を標準で登録）
+DEFAULT_SETTINGS = {
+    "第2回": {
+        "subjects": ["社会", "数学", "理科", "技家", "保体", "英語"],
+        "rubrics": {}
+    }
+}
+
 def load_settings():
+    """保存された設定ファイルを読み込む関数"""
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if data:
+                    return data
         except Exception:
-            return {}
-    return {}
+            pass
+    return DEFAULT_SETTINGS
 
 def save_settings(data):
+    """現在の設定をファイルに書き出して保存する関数"""
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -51,11 +64,12 @@ def save_settings(data):
     except Exception:
         return False
 
+# セッション状態に登録データを保持
 if "lesson_settings" not in st.session_state:
     st.session_state["lesson_settings"] = load_settings()
 
 # ---------------------------------------------------------
-# 4. サイドバー設定（管理者認証 ＆ データベース ＆ QRコード生成）
+# 4. サイドバー設定
 # ---------------------------------------------------------
 st.sidebar.header("🔑 システム認証")
 input_pass = st.sidebar.text_input(
@@ -79,13 +93,13 @@ if is_admin:
     spreadsheet_url = st.sidebar.text_input(
         "Googleフォーム回答スプレッドシートのURLを入力",
         value=DEFAULT_SHEET_URL,
-        help="Googleフォームの回答が蓄積されるスプレッドシートのURLを貼り付けてください"
+        help="Googleフォームの回答が蓄積されるスプレッドシートのURLを入力"
     )
 else:
     spreadsheet_url = DEFAULT_SHEET_URL
     st.sidebar.caption("※スプレッドシートURLの変更は管理者のみ可能です。")
 
-# --- 誤配付防止：生徒向けURL・QRコード自動生成 ---
+# 生徒配付用URL・QRコード生成
 st.sidebar.divider()
 st.sidebar.header("📱 生徒配付用URL・QRコード生成")
 target_round_for_qr = st.sidebar.selectbox(
@@ -104,10 +118,10 @@ if FORM_ID != "YOUR_FORM_ID_HERE":
     qr_api_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={urllib.parse.quote(generated_form_url)}"
     st.sidebar.image(qr_api_url, caption=f"{target_round_for_qr} 配付用QRコード")
 else:
-    st.sidebar.warning("⚠️ フォームIDが未設定です。コード内の FORM_ID を設定してください。")
+    st.sidebar.warning("⚠️ フォームIDが未設定です。")
 
 # ---------------------------------------------------------
-# 5. データベース接続・データ統合処理
+# 5. データベース接続・データ統合処理（列名のあいまい検索対応）
 # ---------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -119,23 +133,39 @@ def load_data(url):
         clean_url = url.strip()
         data = conn.read(spreadsheet=clean_url, worksheet=0)
         
-        column_mapping = {
-            "実施回": "回",
-            "1. 教科名": "教科",
-            "2. 学び合いの前に自分の意見をもつことができましたか": "事前意見あり",
-            "3. 学び合いでは新たな考えや疑問が生まれましたか": "新たな気づき",
-            "4. 仲間との学び合いではどのような学び合いをしましたか": "学び合い内容",
-            "5. 今日の授業でわかったことや大切だと感じたことは何ですか": "わかったこと"
-        }
-        data = data.rename(columns=column_mapping)
+        # 列名の前後の余分な空白を除去
+        data.columns = [str(col).strip() for col in data.columns]
+        
+        # 列名の柔軟な判定（あいまいマッチング）
+        rename_dict = {}
+        for col in data.columns:
+            if "実施回" in col or "回" in col:
+                rename_dict[col] = "回"
+            elif "教科" in col:
+                rename_dict[col] = "教科"
+            elif "事前" in col or "自分" in col or col.startswith("2."):
+                rename_dict[col] = "事前意見あり"
+            elif "新" in col or col.startswith("3."):
+                rename_dict[col] = "新たな気づき"
+            elif "仲間" in col or "学び合い" in col or col.startswith("4."):
+                rename_dict[col] = "学び合い内容"
+            elif "わかった" in col or "大切" in col or col.startswith("5."):
+                rename_dict[col] = "わかったこと"
+                
+        data = data.rename(columns=rename_dict)
+        
+        if "回" in data.columns:
+            data = data.dropna(subset=["回"])
+            data["回"] = data["回"].astype(str).str.strip()
+            
         return data
     except Exception as e:
-        st.error(f"データの読み込みに失敗しました。URLを確認してください: {e}")
+        st.error(f"データの読み込みに失敗しました: {e}")
         return pd.DataFrame(columns=["回", "教科", "事前意見あり", "新たな気づき", "学び合い内容", "わかったこと"])
 
 survey_df = load_data(spreadsheet_url)
 
-# データ管理・第1回統合 & 引き継ぎガイドボタン
+# 第1回データの統合
 st.sidebar.divider()
 st.sidebar.subheader("📁 データ管理")
 
@@ -165,44 +195,6 @@ if include_1st:
         st.sidebar.success("第1回データを統合表示中")
     except Exception as e:
         st.sidebar.error(f"第1回データ読み込みエラー: {e}")
-
-# 引き継ぎガイドボタン
-with st.sidebar.popover("🔰 パソコンが苦手な方向け：引き継ぎ・復元ガイド", use_container_width=True):
-    st.markdown("### 🏫 Googleドライブへのバックアップ＆引き継ぎ手順")
-    st.info("この案内通りに進めるだけで、パソコンの交換や異動時のデータ保存・復元が完了します！")
-    
-    tab_guide1, tab_guide2 = st.tabs(["📤 1. データ保存（異動前）", "📥 2. データ復元（異動後）"])
-    
-    with tab_guide1:
-        st.markdown("**【ステップ 1】 設定ファイルをダウンロードする**")
-        json_str = json.dumps(st.session_state["lesson_settings"], ensure_ascii=False, indent=4)
-        st.download_button(
-            label="1. ここをクリックして設定ファイルを保存",
-            data=json_str,
-            file_name="lesson_settings.json",
-            mime="application/json",
-            type="primary",
-            use_container_width=True
-        )
-        st.markdown("**【ステップ 2】 Googleドライブに保存する**")
-        st.write("1. Web版Googleドライブを開きます。")
-        st.write("2. 「研究授業ダッシュボード」という名前の新規フォルダーを作成します。")
-        st.write("3. そのフォルダーの中に `lesson_settings.json` と `dashboard.py` を保存します。")
-
-    with tab_guide2:
-        st.markdown("**【ステップ 1】 Googleドライブから取り出す**")
-        st.write("1. 新しいパソコンでGoogleドライブから2つのファイルをダウンロードします。")
-        st.markdown("**【ステップ 2】 設定ファイルを画面から復元する**")
-        uploaded_json = st.file_uploader("保存した lesson_settings.json をここにドラッグ", type=["json"], key="guide_restore")
-        if uploaded_json is not None:
-            try:
-                loaded_data = json.load(uploaded_json)
-                st.session_state["lesson_settings"] = loaded_data
-                save_settings(loaded_data)
-                st.balloons()
-                st.success("🎉 設定が完全に復元されました！")
-            except Exception as e:
-                st.error(f"復元エラーが発生しました: {e}")
 
 # ---------------------------------------------------------
 # 6. メイン画面（3タブ構造）
@@ -255,14 +247,11 @@ with tab_register:
                     "subjects": selected_subjects,
                     "rubrics": updated_rubrics
                 }
-                if save_settings(st.session_state["lesson_settings"]):
-                    st.success(f"🎉 {reg_round} の授業設定を保存しました！")
+                save_settings(st.session_state["lesson_settings"])
+                st.success(f"🎉 {reg_round} の授業設定を保存しました！")
     else:
         st.warning("🔒 授業計画の新規登録や編集を行うには、サイドバーで管理者パスワードを入力してください。")
 
-# ==========================================
-# タブ1: 教科別・結果表示
-# ==========================================
 # ==========================================
 # タブ1: 教科別・結果表示
 # ==========================================
@@ -270,13 +259,12 @@ with tab1:
     st.header("教科別・回別 集計結果")
     st.caption("事前登録された教科とルーブリックに基づいて、授業ごとの回答を確認します。")
     
-    # 第1回以外のデータのみを抽出（文字列・数値両対応で確実に除外）
+    # 第1回以外のデータ
     filtered_df = survey_df[~survey_df["回"].astype(str).str.contains("第1回")].copy()
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        # 実際に存在する第2回以降の実施回リストを取得
-        available_rounds = [str(r) for r in filtered_df["回"].dropna().unique() if str(r).strip() != ""]
+        available_rounds = sorted([str(r).strip() for r in filtered_df["回"].dropna().unique() if str(r).strip() != ""])
         if available_rounds:
             selected_round = st.selectbox("実施回を選択", ["すべて"] + available_rounds)
         else:
@@ -298,9 +286,8 @@ with tab1:
                 selected_subject = "データなし"
                 st.selectbox("教科を選択", ["データなし"], disabled=True)
     
-    # データ絞り込み処理
     if selected_round == "データなし":
-        filtered_df = pd.DataFrame()  # データがない場合は空のデータフレームにする
+        filtered_df = pd.DataFrame()
     else:
         if selected_round != "すべて":
             filtered_df = filtered_df[filtered_df["回"].astype(str) == selected_round]
@@ -308,7 +295,7 @@ with tab1:
             filtered_df = filtered_df[filtered_df["教科"].astype(str) == selected_subject]
         
     if filtered_df.empty:
-        st.info("ℹ️ 該当する第2回以降の授業データがまだありません。生徒からの回答が集まるとここに表示されます。")
+        st.info("ℹ️ 該当する授業データがまだありません。")
     else:
         st.markdown(f"### 対象データ件数: {len(filtered_df)} 件")
         
@@ -333,6 +320,7 @@ with tab1:
         st.subheader(f"📋 【{selected_subject}】 の登録ルーブリック")
         with st.expander("ルーブリック本文を表示"):
             st.write(rubrics_dict[selected_subject])
+
 # ==========================================
 # タブ2: 生徒の変容・分析
 # ==========================================
@@ -368,7 +356,6 @@ with tab2:
                         words.append(token.base_form)
             return words
 
-        # 修正箇所: 空欄（NaN）を取り除き、すべて文字列に変換してから並べ替えを実行
         all_rounds = sorted([str(r) for r in survey_df["回"].dropna().unique()])
         cols = st.columns(min(len(all_rounds), 3)) if all_rounds else []
         for idx, r in enumerate(all_rounds):
