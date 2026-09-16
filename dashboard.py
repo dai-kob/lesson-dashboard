@@ -93,6 +93,11 @@ else:
     spreadsheet_url = DEFAULT_SHEET_URL
     st.sidebar.caption("※スプレッドシートURLの変更は管理者のみ可能です。")
 
+# 【追加】古いデータを消去してスプレッドシートの最新状態を取得するボタン
+if st.sidebar.button("🔄 データを最新状態に更新"):
+    st.cache_data.clear()
+    st.rerun()
+
 # 生徒配付用URL・QRコード生成
 st.sidebar.divider()
 st.sidebar.header("📱 生徒配付用URL・QRコード生成")
@@ -115,11 +120,12 @@ else:
     st.sidebar.warning("⚠️ フォームIDが未設定です。")
 
 # ---------------------------------------------------------
-# 5. データベース接続・データ統合処理
+# 5. データベース接続・データ読み込み（リアルタイム取得版）
 # ---------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=5)
+# ttl=0 に変更し、過去の古いデータを保持せず毎回スプレッドシートから直接取得します
+@st.cache_data(ttl=0)
 def load_data(url):
     if not url:
         return pd.DataFrame(columns=["回", "教科", "事前意見あり", "新たな気づき", "学び合い内容", "わかったこと"])
@@ -149,9 +155,7 @@ def load_data(url):
         if "回" in data.columns:
             data = data.dropna(subset=["回"])
             
-            # 【汎用フォーマット処理】
-            # 数字のみ（例: "3"）や「第3回」などの入力揺れを「第N回」形式に自動統一します。
-            # 特定の回を別の回へ書き換える処理は行いません。
+            # 入力形式の統一処理（数字のみなどの場合に「第N回」の形に整形）
             def normalize_round(val):
                 val_str = str(val).strip()
                 match = re.search(r'(\d+)', val_str)
